@@ -7,6 +7,7 @@ use crate::dbs::Transaction;
 use crate::err::Error;
 use crate::sql::array::{array, Array};
 use crate::sql::common::commas;
+use crate::sql::constant::constant;
 use crate::sql::datetime::{datetime, Datetime};
 use crate::sql::duration::{duration, Duration};
 use crate::sql::edges::{edges, Edges};
@@ -398,6 +399,12 @@ impl From<Vec<Value>> for Value {
 	}
 }
 
+impl From<Vec<Number>> for Value {
+	fn from(v: Vec<Number>) -> Self {
+		Value::Array(Array::from(v))
+	}
+}
+
 impl From<Vec<Operation>> for Value {
 	fn from(v: Vec<Operation>) -> Self {
 		Value::Array(Array::from(v))
@@ -533,6 +540,14 @@ impl Value {
 
 	pub fn is_thing(&self) -> bool {
 		matches!(self, Value::Thing(_))
+	}
+
+	pub fn is_model(&self) -> bool {
+		matches!(self, Value::Model(_))
+	}
+
+	pub fn is_range(&self) -> bool {
+		matches!(self, Value::Range(_))
 	}
 
 	pub fn is_strand(&self) -> bool {
@@ -1199,6 +1214,7 @@ impl ops::Sub for Value {
 	fn sub(self, other: Self) -> Self {
 		match (self, other) {
 			(Value::Number(v), Value::Number(w)) => Value::Number(v - w),
+			(Value::Datetime(v), Value::Datetime(w)) => Value::Duration(v - w),
 			(Value::Datetime(v), Value::Duration(w)) => Value::Datetime(w - v),
 			(Value::Duration(v), Value::Datetime(w)) => Value::Datetime(v - w),
 			(Value::Duration(v), Value::Duration(w)) => Value::Duration(v - w),
@@ -1220,10 +1236,9 @@ impl ops::Mul for Value {
 impl ops::Div for Value {
 	type Output = Self;
 	fn div(self, other: Self) -> Self {
-		match (self, other) {
-			(Value::Number(v), Value::Number(w)) => Value::Number(v / w),
-			(Value::Datetime(v), Value::Duration(w)) => Value::Datetime(w / v),
-			(v, w) => Value::from(v.as_number() / w.as_number()),
+		match (self.as_number(), other.as_number()) {
+			(_, w) if w == Number::Int(0) => Value::None,
+			(v, w) => Value::Number(v / w),
 		}
 	}
 }
@@ -1247,6 +1262,7 @@ pub fn single(i: &str) -> IResult<&str, Value> {
 		alt((
 			map(subquery, Value::from),
 			map(function, Value::from),
+			map(constant, Value::from),
 			map(datetime, Value::from),
 			map(duration, Value::from),
 			map(geometry, Value::from),
@@ -1276,6 +1292,7 @@ pub fn select(i: &str) -> IResult<&str, Value> {
 			map(expression, Value::from),
 			map(subquery, Value::from),
 			map(function, Value::from),
+			map(constant, Value::from),
 			map(datetime, Value::from),
 			map(duration, Value::from),
 			map(geometry, Value::from),
@@ -1299,6 +1316,7 @@ pub fn what(i: &str) -> IResult<&str, Value> {
 	alt((
 		map(subquery, Value::from),
 		map(function, Value::from),
+		map(constant, Value::from),
 		map(param, Value::from),
 		map(model, Value::from),
 		map(edges, Value::from),

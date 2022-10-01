@@ -1,4 +1,5 @@
 use crate::sql::common::{take_digits, take_digits_range, take_u32_len};
+use crate::sql::duration::Duration;
 use crate::sql::error::IResult;
 use crate::sql::serde::is_internal_serialization;
 use chrono::{DateTime, FixedOffset, TimeZone, Utc};
@@ -7,9 +8,9 @@ use nom::character::complete::char;
 use nom::combinator::map;
 use nom::sequence::delimited;
 use serde::{Deserialize, Serialize};
-use std::fmt;
 use std::ops::Deref;
 use std::str;
+use std::{fmt, ops};
 
 const SINGLE: char = '\'';
 const DOUBLE: char = '"';
@@ -66,6 +67,16 @@ impl Serialize for Datetime {
 			serializer.serialize_newtype_struct("Datetime", &self.0)
 		} else {
 			serializer.serialize_some(&self.0)
+		}
+	}
+}
+
+impl ops::Sub<Datetime> for Datetime {
+	type Output = Duration;
+	fn sub(self, other: Datetime) -> Duration {
+		match (self.0 - other.0).to_std() {
+			Ok(d) => Duration::from(d),
+			Err(_) => Duration::default(),
 		}
 	}
 }
@@ -211,9 +222,9 @@ fn zone_all(i: &str) -> IResult<&str, Option<FixedOffset>> {
 	if h == 0 && m == 0 {
 		Ok((i, None))
 	} else if s < 0 {
-		Ok((i, { Some(FixedOffset::west((h * 3600 + m) as i32)) }))
+		Ok((i, { Some(FixedOffset::west((h * 3600 + m * 60) as i32)) }))
 	} else if s > 0 {
-		Ok((i, { Some(FixedOffset::east((h * 3600 + m) as i32)) }))
+		Ok((i, { Some(FixedOffset::east((h * 3600 + m * 60) as i32)) }))
 	} else {
 		Ok((i, None))
 	}
@@ -274,5 +285,14 @@ mod tests {
 		assert!(res.is_ok());
 		let out = res.unwrap().1;
 		assert_eq!("\"2012-04-24T02:25:43.511Z\"", format!("{}", out));
+	}
+
+	#[test]
+	fn date_time_timezone_pacific_partial() {
+		let sql = "2012-04-23T18:25:43.511-08:30";
+		let res = datetime_raw(sql);
+		assert!(res.is_ok());
+		let out = res.unwrap().1;
+		assert_eq!("\"2012-04-24T02:55:43.511Z\"", format!("{}", out));
 	}
 }
